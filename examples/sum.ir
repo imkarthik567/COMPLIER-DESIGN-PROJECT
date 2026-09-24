@@ -1,0 +1,14 @@
+# sum of 1..10 using a loop -> expected output: 55
+func main():
+    n = 10
+    sum = 0
+    i = 1
+loop:
+    c = i > n
+    ifnz c goto done
+    sum = sum + i
+    i = i + 1
+    goto loop
+done:
+    print sum
+    return

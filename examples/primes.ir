@@ -1,0 +1,31 @@
+# counts primes below 30 using a helper function -> expected output: 10
+func is_prime(n):
+    if_small = n < 2
+    ifnz if_small goto no
+    d = 2
+check:
+    sq = d * d
+    over = sq > n
+    ifnz over goto yes
+    r = n % d
+    ifz r goto no
+    d = d + 1
+    goto check
+yes:
+    return 1
+no:
+    return 0
+
+func main():
+    count = 0
+    k = 0
+next:
+    done = k >= 30
+    ifnz done goto finish
+    p = call is_prime(k)
+    count = count + p
+    k = k + 1
+    goto next
+finish:
+    print count
+    return

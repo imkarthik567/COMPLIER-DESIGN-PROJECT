@@ -1,0 +1,6 @@
+# x = 2 + 3 * 4  -> expected output: 14
+func main():
+    t1 = 3 * 4
+    x = 2 + t1
+    print x
+    return

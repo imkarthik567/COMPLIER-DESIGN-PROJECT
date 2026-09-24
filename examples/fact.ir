@@ -1,0 +1,17 @@
+# recursive factorial -> expected output: 120, 3628800
+func fact(n):
+    c = n <= 1
+    ifz c goto recurse
+    return 1
+recurse:
+    m = n - 1
+    r = call fact(m)
+    r = n * r
+    return r
+
+func main():
+    x = call fact(5)
+    print x
+    y = call fact(10)
+    print y
+    return
