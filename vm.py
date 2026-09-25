@@ -1,15 +1,3 @@
-"""CVM: a stack-based virtual machine.
-
-State
-    code    list of Instr (read-only)
-    ip      index of the next instruction
-    stack   operand stack shared by all frames
-    frames  call stack; each Frame has locals, return address and the stack
-            height at entry (`base`) so a callee can never touch its caller's
-            operands
-Traps (VMError): stack underflow, division by zero, bad slot, bad jump,
-call-stack overflow, step limit (catches infinite loops).
-"""
 from dataclasses import dataclass
 
 from isa import Op, format_instr
