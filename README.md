@@ -1,7 +1,5 @@
 # Compiler Design Project
 
-A simple compiler and virtual machine project developed as part of the Compiler Design course.
-
 The project takes a custom Intermediate Representation (IR) program, converts it into bytecode, and executes the bytecode using a stack-based Virtual Machine (VM).
 
 ## Project Flow
