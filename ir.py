@@ -1,19 +1,3 @@
-"""Three-address intermediate representation (the input of the backend).
-
-Text syntax (one statement per line, '#' starts a comment):
-
-    func name(p1, p2):        start of a function
-    x = 5                     copy (constant or variable)
-    x = a + b                 binary op: + - * / % < <= > >= == !=
-    x = call f(a, b)          call, result stored in x
-    call f(a)                 call, result discarded
-    label:                    jump target
-    goto label
-    ifz  c goto label         jump if c == 0
-    ifnz c goto label         jump if c != 0
-    print a
-    return [a]
-"""
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
@@ -26,7 +10,7 @@ class IRError(Exception):
 
 
 class _Node:
-    line = 0  # source line, filled in by the parser
+    line = 0  
 
 
 @dataclass
@@ -90,7 +74,6 @@ class Function:
     line: int = 0
 
 
-# ---------------------------------------------------------------- parsing
 IDENT = r"[A-Za-z_]\w*"
 OPND = rf"(?:-?\d+|{IDENT})"
 IDENT_RE = re.compile(IDENT)
@@ -182,7 +165,6 @@ def parse(text):
     return funcs
 
 
-# ---------------------------------------------------------------- printing
 def fmt(ins):
     if isinstance(ins, Assign):
         return f"{ins.dst} = {ins.src}"
@@ -215,8 +197,6 @@ def format_ir(functions):
             lines.append(pad + fmt(ins))
     return "\n".join(lines)
 
-
-# ------------------------------------------------- basic blocks and CFG
 @dataclass
 class Block:
     id: int
