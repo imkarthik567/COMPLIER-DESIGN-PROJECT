@@ -1,11 +1,3 @@
-"""CVM driver.
-
-    python main.py examples/sum.ir                 compile + run
-    python main.py examples/sum.ir --demo          show IR, CFG, bytecode, then run
-    python main.py examples/fact.ir --trace        step-by-step VM execution
-    python main.py examples/sum.ir -o sum.bc       write binary bytecode
-    python main.py sum.bc                          run a bytecode file (no compiler)
-"""
 import argparse
 import sys
 
