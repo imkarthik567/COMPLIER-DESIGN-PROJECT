@@ -1,12 +1,3 @@
-"""Code generator: three-address IR -> CVM stack bytecode.
-
-Strategy
-  * every variable of a function gets a slot in that function's frame
-    (parameters take slots 0..n-1, the rest in order of first appearance)
-  * each IR statement becomes a short push / operate / store sequence
-  * labels and function entry points are resolved by back-patching
-  * a 2-instruction prologue `CALL main; HALT` starts the program
-"""
 from dataclasses import dataclass
 
 from ir import (Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return)
