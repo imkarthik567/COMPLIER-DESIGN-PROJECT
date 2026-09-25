@@ -17,8 +17,8 @@ BINOP_CODE = {
 @dataclass
 class Program:
     code: list
-    funcs: dict    # address -> function name
-    labels: dict   # address -> [label names]
+    funcs: dict    
+    labels: dict   
 
 
 def _vars(ins):
@@ -48,7 +48,7 @@ def generate(functions):
     if sigs["main"] != 0:
         raise CodegenError("'main' must take no parameters")
 
-    code = [Instr(Op.CALL, 0, 0), Instr(Op.HALT)]   # prologue, patched below
+    code = [Instr(Op.CALL, 0, 0), Instr(Op.HALT)]  
     entry, funcs, labels, call_fixups = {}, {}, {}, []
 
     for f in functions:
@@ -70,12 +70,12 @@ def _gen_function(fn, code, sigs, call_fixups, labels):
             slots[name] = len(slots)
         return slots[name]
 
-    for ins in fn.body:            # pre-pass: allocate every variable
+    for ins in fn.body:           
         for v in _vars(ins):
             slot(v)
 
     enter_at = len(code)
-    code.append(Instr(Op.ENTER, 0))            # patched with final slot count
+    code.append(Instr(Op.ENTER, 0))         
     local_labels, jump_fixups = {}, []
 
     def push(x):
@@ -134,11 +134,11 @@ def _gen_function(fn, code, sigs, call_fixups, labels):
             if ins.dst:
                 code.append(Instr(Op.STORE, slot(ins.dst)))
             else:
-                code.append(Instr(Op.POP))       # discard unused result
+                code.append(Instr(Op.POP))     
         else:
             raise CodegenError(f"unsupported IR node {ins!r}")
 
-    if not fn.body or not isinstance(fn.body[-1], Return):   # implicit `return 0`
+    if not fn.body or not isinstance(fn.body[-1], Return):   
         code.append(Instr(Op.PUSH, 0))
         code.append(Instr(Op.RET))
 
