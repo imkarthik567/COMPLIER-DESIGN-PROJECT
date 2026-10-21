@@ -763,6 +763,6 @@ def run_ai_pipeline(
     # 4. Instruction Scheduling
     sched_stats = None
     if "InstructionScheduler" in selected_passes:
-        functions, sched_stats = scheduler.schedule_program(functions)
+        functions, sched_stats = scheduler.schedule_program(functions, reg_map=reg_map)
 
     return functions, reg_map, reg_stats, sched_stats, vec_stats, stats

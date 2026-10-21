@@ -31,7 +31,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from ir import Assign, BinOp, Call, Function, Goto, IfNz, IfZ, Label, Print, Return
+from ir import (
+    Assign, BinOp, Call, Function, Goto, IfNz, IfZ, Label, Print, Return,
+    LoadIndexed, StoreIndexed, NewArray, VLoad, VStore, VAdd, VSub, VMul, VDiv
+)
 from optimizer import BasicBlock, build_cfg, cfg_to_function
 from dataflow import LivenessAnalysis, _get_def_var, _get_read_vars
 from loops import find_natural_loops
@@ -69,6 +72,12 @@ def get_instruction_latency(ins: Any) -> int:
             return 1
     elif isinstance(ins, Call):
         return 10
+    elif isinstance(ins, (LoadIndexed, VLoad)):
+        return 2
+    elif isinstance(ins, (StoreIndexed, VStore)):
+        return 1
+    elif isinstance(ins, (VAdd, VSub, VMul, VDiv)):
+        return 2
     elif isinstance(ins, Assign):
         # Store to memory/spill slot
         if isinstance(ins.dst, str) and (
@@ -98,12 +107,27 @@ def is_call_instruction(ins: Any) -> bool:
 
 def is_store_instruction(ins: Any) -> bool:
     """Return True if instruction is a store to memory or slot."""
+    if isinstance(ins, (StoreIndexed, VStore)):
+        return True
     if getattr(ins, "is_store", False):
         return True
     if isinstance(ins, Assign) and isinstance(ins.dst, str):
         if (
             ins.dst.startswith(("_spill_slot_", "mem_", "store_"))
             or "spill" in ins.dst.lower()
+        ):
+            return True
+    return False
+
+
+def is_load_instruction(ins: Any) -> bool:
+    """Return True if instruction is a load from memory or array."""
+    if isinstance(ins, (LoadIndexed, VLoad)):
+        return True
+    if isinstance(ins, Assign) and isinstance(ins.src, str):
+        if (
+            ins.src.startswith(("_spill_slot_", "mem_", "load_"))
+            or "spill" in ins.src.lower()
         ):
             return True
     return False
@@ -222,7 +246,10 @@ class DataDependencyGraph:
         return self.critical_paths.get(node_id, self.latency(node_id))
 
 
-def build_ddg(instrs: List[Any]) -> DataDependencyGraph:
+def build_ddg(
+    instrs: List[Any],
+    reg_map: Optional[Dict[str, int]] = None,
+) -> DataDependencyGraph:
     """Construct Data Dependency Graph for an instruction sequence in a basic block."""
     ddg = DataDependencyGraph(instrs)
     n = len(instrs)
@@ -231,12 +258,20 @@ def build_ddg(instrs: List[Any]) -> DataDependencyGraph:
         return ddg
 
     # Track def and read history
-    # var -> list of instruction indices that read that variable since last def
+    # var/resource -> list of instruction indices that read that resource since last def
     var_readers: Dict[str, List[int]] = {}
-    # var -> instruction index of latest definition
+    # var/resource -> instruction index of latest definition
     latest_def: Dict[str, int] = {}
     # Track print instructions to preserve IO order
     last_print_idx: Optional[int] = None
+    # Track memory operations for store/load ordering dependencies
+    last_stores: List[int] = []
+    last_loads: List[int] = []
+
+    def to_resource(v: str) -> str:
+        if reg_map and v in reg_map:
+            return f"@r{reg_map[v]}"
+        return v
 
     # If first instruction is a Label, it must precede all subsequent instructions
     if isinstance(instrs[0], Label):
@@ -244,8 +279,10 @@ def build_ddg(instrs: List[Any]) -> DataDependencyGraph:
             ddg.add_edge(0, j, DependencyType.CONTROL, weight=ddg.latency(0))
 
     for j, ins in enumerate(instrs):
-        reads = _get_read_vars(ins)
-        def_var = _get_def_var(ins)
+        raw_reads = _get_read_vars(ins)
+        raw_def = _get_def_var(ins)
+        reads = [to_resource(r) for r in raw_reads]
+        def_var = to_resource(raw_def) if raw_def else None
         is_barrier = is_barrier_instruction(ins)
 
         # 1. RAW: True Dependency (j reads variable defined by latest_def)
@@ -282,6 +319,21 @@ def build_ddg(instrs: List[Any]) -> DataDependencyGraph:
             if last_print_idx is not None:
                 ddg.add_edge(last_print_idx, j, DependencyType.CONTROL)
             last_print_idx = j
+
+        # 5. MEMORY: Order dependencies between stores and loads
+        is_mem_store = is_store_instruction(ins)
+        is_mem_load = is_load_instruction(ins)
+        if is_mem_store:
+            for s in last_stores:
+                ddg.add_edge(s, j, DependencyType.WAW)
+            for l in last_loads:
+                ddg.add_edge(l, j, DependencyType.WAR)
+            last_stores = [j]
+            last_loads = []
+        elif is_mem_load:
+            for s in last_stores:
+                ddg.add_edge(s, j, DependencyType.RAW)
+            last_loads.append(j)
 
         # Update variable tracking
         for r in reads:
@@ -673,12 +725,16 @@ class InstructionScheduler:
     def __init__(self, use_superblocks: bool = False):
         self.use_superblocks = use_superblocks
 
-    def schedule_block(self, block: BasicBlock) -> Tuple[BasicBlock, BlockScheduleReport]:
+    def schedule_block(
+        self,
+        block: BasicBlock,
+        reg_map: Optional[Dict[str, int]] = None,
+    ) -> Tuple[BasicBlock, BlockScheduleReport]:
         """Schedule instructions in a single basic block and return metrics."""
         orig_instrs = list(block.instrs)
         orig_cycles, orig_stalls = estimate_pipeline_cycles(orig_instrs)
 
-        ddg = build_ddg(orig_instrs)
+        ddg = build_ddg(orig_instrs, reg_map=reg_map)
         sched_instrs = list_schedule(orig_instrs, ddg=ddg)
         sched_cycles, sched_stalls = estimate_pipeline_cycles(sched_instrs)
 
@@ -716,11 +772,11 @@ class InstructionScheduler:
             for sb in superblocks:
                 schedule_superblock(sb, cfg, liveness_results=liveness, reg_map=reg_map)
             for b in cfg.values():
-                _, rep = self.schedule_block(b)
+                _, rep = self.schedule_block(b, reg_map=reg_map)
                 stats.add_block_report(rep)
         else:
             for b in cfg.values():
-                _, rep = self.schedule_block(b)
+                _, rep = self.schedule_block(b, reg_map=reg_map)
                 stats.add_block_report(rep)
 
         new_fn = cfg_to_function(fn, cfg)

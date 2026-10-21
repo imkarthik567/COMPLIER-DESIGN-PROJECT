@@ -12,7 +12,10 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from ir import Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return
+from ir import (
+    Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return,
+    LoadIndexed, StoreIndexed, NewArray, VLoad, VStore, VAdd, VSub, VMul, VDiv
+)
 from optimizer import BasicBlock
 
 Operand = Union[int, str]
@@ -34,6 +37,34 @@ def _get_read_vars(ins) -> List[str]:
         return [ins.arg] if ins.arg is not None and isinstance(ins.arg, str) else []
     elif isinstance(ins, Call):
         return [a for a in ins.args if isinstance(a, str)]
+    elif isinstance(ins, LoadIndexed):
+        res = [ins.array] if isinstance(ins.array, str) else []
+        if isinstance(ins.index, str):
+            res.append(ins.index)
+        return res
+    elif isinstance(ins, StoreIndexed):
+        res = [ins.array] if isinstance(ins.array, str) else []
+        if isinstance(ins.index, str):
+            res.append(ins.index)
+        if isinstance(ins.src, str):
+            res.append(ins.src)
+        return res
+    elif isinstance(ins, NewArray):
+        return [ins.size] if isinstance(ins.size, str) else []
+    elif isinstance(ins, VLoad):
+        res = [ins.array] if isinstance(ins.array, str) else []
+        if isinstance(ins.base_index, str):
+            res.append(ins.base_index)
+        return res
+    elif isinstance(ins, VStore):
+        res = [ins.array] if isinstance(ins.array, str) else []
+        if isinstance(ins.base_index, str):
+            res.append(ins.base_index)
+        if isinstance(ins.src, str):
+            res.append(ins.src)
+        return res
+    elif isinstance(ins, (VAdd, VSub, VMul, VDiv)):
+        return [v for v in (ins.a, ins.b) if isinstance(v, str)]
     return []
 
 
@@ -42,6 +73,8 @@ def _get_def_var(ins) -> Optional[str]:
     if isinstance(ins, (Assign, BinOp)):
         return ins.dst
     if isinstance(ins, Call):
+        return ins.dst
+    if isinstance(ins, (LoadIndexed, NewArray, VLoad, VAdd, VSub, VMul, VDiv)):
         return ins.dst
     return None
 
