@@ -1,0 +1,70 @@
+# 3x3 Matrix Multiplication (loop-heavy, LICM target)
+func main():
+    a = new_array(9)
+    b = new_array(9)
+    c = new_array(9)
+    a[0] = 1
+    a[1] = 2
+    a[2] = 3
+    a[3] = 4
+    a[4] = 5
+    a[5] = 6
+    a[6] = 7
+    a[7] = 8
+    a[8] = 9
+    b[0] = 9
+    b[1] = 8
+    b[2] = 7
+    b[3] = 6
+    b[4] = 5
+    b[5] = 4
+    b[6] = 3
+    b[7] = 2
+    b[8] = 1
+    i = 0
+loop_i:
+    k = 0
+loop_k:
+    # row = i * 3 is loop-invariant in loop_k (LICM hoist target)
+    row = i * 3
+
+    # Term 0: a[row + 0] * b[0 + k]
+    idx = row + 0
+    v = a[idx]
+    w = b[k]
+    sum = v * w
+
+    # Term 1: a[row + 1] * b[3 + k]
+    idx = row + 1
+    v = a[idx]
+    idx = 3 + k
+    w = b[idx]
+    p = v * w
+    sum = sum + p
+
+    # Term 2: a[row + 2] * b[6 + k]
+    idx = row + 2
+    v = a[idx]
+    idx = 6 + k
+    w = b[idx]
+    p = v * w
+    sum = sum + p
+
+    idx = row + k
+    c[idx] = sum
+
+    k = k + 1
+    ck = k < 3
+    ifnz ck goto loop_k
+
+    i = i + 1
+    ci = i < 3
+    ifnz ci goto loop_i
+
+    res0 = c[0]
+    print res0
+    res4 = c[4]
+    print res4
+    res8 = c[8]
+    print res8
+    return

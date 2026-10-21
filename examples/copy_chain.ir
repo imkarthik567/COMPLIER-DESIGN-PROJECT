@@ -1,0 +1,16 @@
+# Copy propagation & dead code elimination showcase -> expected output: 50
+func main():
+    x = 42
+    a = x
+    b = a
+    c = b
+    d = c
+    e = d
+    f = e
+    g = f
+    h = g
+    dead1 = h + 100
+    dead2 = dead1 * 2
+    ans = h + 8
+    print ans
+    return

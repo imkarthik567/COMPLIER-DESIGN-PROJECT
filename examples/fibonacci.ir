@@ -1,0 +1,17 @@
+# recursive Fibonacci -> fib(10) = 55
+func fib(n):
+    c = n <= 1
+    ifz c goto recurse
+    return n
+recurse:
+    n1 = n - 1
+    r1 = call fib(n1)
+    n2 = n - 2
+    r2 = call fib(n2)
+    ans = r1 + r2
+    return ans
+
+func main():
+    res = call fib(10)
+    print res
+    return

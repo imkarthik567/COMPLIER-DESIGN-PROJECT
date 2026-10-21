@@ -1,3 +1,12 @@
+"""Code generator: three-address IR -> CVM stack bytecode.
+
+Strategy
+  * every variable of a function gets a slot in that function's frame
+    (parameters take slots 0..n-1, the rest in order of first appearance)
+  * each IR statement becomes a short push / operate / store sequence
+  * labels and function entry points are resolved by back-patching
+  * a 2-instruction prologue `CALL main; HALT` starts the program
+"""
 from dataclasses import dataclass
 
 from ir import (Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return)
@@ -5,6 +14,7 @@ from isa import Instr, Op
 
 
 class CodegenError(Exception):
+    """Raised when an error occurs during code generation."""
     pass
 
 
@@ -17,8 +27,8 @@ BINOP_CODE = {
 @dataclass
 class Program:
     code: list
-    funcs: dict    
-    labels: dict   
+    funcs: dict    # address -> function name
+    labels: dict   # address -> [label names]
 
 
 def _vars(ins):
@@ -39,7 +49,8 @@ def _vars(ins):
     return [x for x in items if isinstance(x, str)]
 
 
-def generate(functions):
+def generate(functions, reg_map=None):
+    """Generate CVM stack and register bytecode from a list of IR functions."""
     sigs = {}
     for f in functions:
         sigs[f.name] = len(f.params)
@@ -48,13 +59,19 @@ def generate(functions):
     if sigs["main"] != 0:
         raise CodegenError("'main' must take no parameters")
 
-    code = [Instr(Op.CALL, 0, 0), Instr(Op.HALT)]  
+    code = [Instr(Op.CALL, 0, 0), Instr(Op.HALT)]   # prologue, patched below
     entry, funcs, labels, call_fixups = {}, {}, {}, []
 
     for f in functions:
         entry[f.name] = len(code)
         funcs[len(code)] = f.name
-        _gen_function(f, code, sigs, call_fixups, labels)
+        fn_reg_map = None
+        if isinstance(reg_map, dict):
+            if f.name in reg_map and isinstance(reg_map[f.name], dict):
+                fn_reg_map = reg_map[f.name]
+            elif not any(isinstance(v, dict) for v in reg_map.values()):
+                fn_reg_map = reg_map
+        _gen_function(f, code, sigs, call_fixups, labels, reg_map=fn_reg_map)
 
     for idx, name in call_fixups:
         code[idx] = Instr(Op.CALL, entry[name], code[idx].b)
@@ -62,21 +79,46 @@ def generate(functions):
     return Program(code, funcs, labels)
 
 
-def _gen_function(fn, code, sigs, call_fixups, labels):
-    slots = {p: i for i, p in enumerate(fn.params)}
+def _gen_function(fn, code, sigs, call_fixups, labels, reg_map=None):
+    slots = {}
+    if reg_map:
+        for v, r in reg_map.items():
+            slots[v] = r
+
+    for p in fn.params:
+        if p not in slots:
+            next_slot = 8 if reg_map else 0
+            while next_slot in slots.values():
+                next_slot += 1
+            slots[p] = next_slot
 
     def slot(name):
         if name not in slots:
-            slots[name] = len(slots)
+            next_slot = 8 if reg_map else 0
+            while next_slot in slots.values():
+                next_slot += 1
+            slots[name] = next_slot
         return slots[name]
 
-    for ins in fn.body:           
+    for ins in fn.body:            # pre-pass: allocate every variable
         for v in _vars(ins):
             slot(v)
 
     enter_at = len(code)
-    code.append(Instr(Op.ENTER, 0))         
+    code.append(Instr(Op.ENTER, 0))            # patched with final slot count
     local_labels, jump_fixups = {}, []
+
+    if reg_map:
+        for i, p in enumerate(fn.params):
+            dst_slot = slot(p)
+            if dst_slot != i:
+                if dst_slot < 8 and i < 8:
+                    code.append(Instr(Op.RLOAD, dst_slot, i))
+                elif i < 8:
+                    code.append(Instr(Op.RSTORE, i, dst_slot))
+                else:
+                    code.append(Instr(Op.LOAD, i))
+                    code.append(Instr(Op.STORE, dst_slot))
 
     def push(x):
         if isinstance(x, int):
@@ -96,8 +138,24 @@ def _gen_function(fn, code, sigs, call_fixups, labels):
                 raise CodegenError(f"line {ins.line}: duplicate label '{ins.name}'")
             local_labels[ins.name] = len(code)
         elif isinstance(ins, Assign):
-            push(ins.src)
-            code.append(Instr(Op.STORE, slot(ins.dst)))
+            if reg_map:
+                dst = ins.dst
+                src = ins.src
+                if isinstance(src, int) and dst in reg_map:
+                    code.append(Instr(Op.RLOAD_IMM, reg_map[dst], src))
+                elif isinstance(src, str) and dst in reg_map and src in reg_map:
+                    rd = reg_map[dst]
+                    rs = reg_map[src]
+                    if rd != rs:
+                        code.append(Instr(Op.RLOAD, rd, rs))
+                elif isinstance(src, str) and src in reg_map and dst not in reg_map:
+                    code.append(Instr(Op.RSTORE, reg_map[src], slot(dst)))
+                else:
+                    push(ins.src)
+                    code.append(Instr(Op.STORE, slot(ins.dst)))
+            else:
+                push(ins.src)
+                code.append(Instr(Op.STORE, slot(ins.dst)))
         elif isinstance(ins, BinOp):
             push(ins.a)
             push(ins.b)
@@ -134,11 +192,11 @@ def _gen_function(fn, code, sigs, call_fixups, labels):
             if ins.dst:
                 code.append(Instr(Op.STORE, slot(ins.dst)))
             else:
-                code.append(Instr(Op.POP))     
+                code.append(Instr(Op.POP))       # discard unused result
         else:
             raise CodegenError(f"unsupported IR node {ins!r}")
 
-    if not fn.body or not isinstance(fn.body[-1], Return):   
+    if not fn.body or not isinstance(fn.body[-1], Return):   # implicit `return 0`
         code.append(Instr(Op.PUSH, 0))
         code.append(Instr(Op.RET))
 
@@ -147,6 +205,7 @@ def _gen_function(fn, code, sigs, call_fixups, labels):
             raise CodegenError(f"line {line}: undefined label '{name}' in function '{fn.name}'")
         code[idx] = Instr(code[idx].op, local_labels[name])
 
-    code[enter_at] = Instr(Op.ENTER, len(slots))
+    final_slots_count = max(8 if reg_map else 0, max(slots.values()) + 1 if slots else 0)
+    code[enter_at] = Instr(Op.ENTER, final_slots_count)
     for name, addr in local_labels.items():
         labels.setdefault(addr, []).append(name)

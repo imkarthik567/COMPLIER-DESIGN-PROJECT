@@ -1,0 +1,31 @@
+# Vector addition benchmark loop
+func main():
+    n = 10
+    a = new_array(n)
+    b = new_array(n)
+    c = new_array(n)
+    i = 0
+init_loop:
+    c1 = i < n
+    ifz c1 goto add_start
+    a[i] = 12
+    b[i] = 23
+    i = i + 1
+    goto init_loop
+add_start:
+    j = 0
+add_loop:
+    c2 = j < n
+    ifz c2 goto done
+    t1 = a[j]
+    t2 = b[j]
+    t3 = t1 + t2
+    c[j] = t3
+    j = j + 1
+    goto add_loop
+done:
+    ans0 = c[0]
+    print ans0
+    ans9 = c[9]
+    print ans9
+    return

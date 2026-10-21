@@ -1,0 +1,11 @@
+# Constant folding showcase
+func main():
+    a = 10 + 20
+    b = 30 * 2
+    c = 100 / 5
+    d = a + b
+    e = d - c
+    f = e % 7
+    ans = f * 10
+    print ans
+    return

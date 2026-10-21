@@ -1,33 +1,65 @@
+"""Instruction set, binary bytecode format and disassembler for the CVM stack machine.
+
+Binary file layout (little-endian):
+    magic  "CVM1"            4 bytes
+    count  uint32            number of instructions
+    then `count` fixed-width instructions of 9 bytes each:
+        opcode  uint8
+        a       int32   (first operand, 0 if unused)
+        b       int32   (second operand, 0 if unused)
+Jump / call targets are instruction indices.
+"""
 import struct
 from enum import IntEnum
 from typing import NamedTuple
 
 
 class Op(IntEnum):
-    PUSH = 1
-    POP = 2
-    DUP = 3
-    LOAD = 4
-    STORE = 5
+    """Opcode enumerations for CVM virtual machine instructions."""
+    # stack
+    PUSH = 1    # PUSH n        push constant n
+    POP = 2     # POP           discard top
+    DUP = 3     # DUP           duplicate top
+    # variables (slots in the current frame)
+    LOAD = 4    # LOAD s        push locals[s]
+    STORE = 5   # STORE s       locals[s] = pop
+    # arithmetic (pop b, pop a, push a OP b)
     ADD = 6
     SUB = 7
     MUL = 8
-    DIV = 9
-    MOD = 10
+    DIV = 9     # truncating division, traps on zero
+    MOD = 10    # traps on zero
+    # comparisons (push 1 or 0)
     LT = 11
     LE = 12
     GT = 13
     GE = 14
     EQ = 15
     NE = 16
-    JMP = 17
-    JZ = 18
-    JNZ = 19
-    CALL = 20
-    ENTER = 21
-    RET = 22
-    PRINT = 23
-    HALT = 24
+    # control flow
+    JMP = 17    # JMP addr      unconditional jump
+    JZ = 18     # JZ addr       pop; jump if == 0
+    JNZ = 19    # JNZ addr      pop; jump if != 0
+    CALL = 20   # CALL addr, n  pop n args into a new frame, jump to addr
+    ENTER = 21  # ENTER n       size the current frame to n local slots
+    RET = 22    # RET           pop return value, drop frame, push value for caller
+    # misc
+    PRINT = 23  # PRINT         pop and print
+    HALT = 24   # HALT          stop the machine
+    # registers
+    RLOAD = 25      # RLOAD Rd, Rs     copy register Rs to Rd
+    RSTORE = 26     # RSTORE Rd, mem   store register Rd to memory slot
+    RLOAD_IMM = 27  # RLOAD_IMM Rd, v  load immediate value v into Rd
+    # array & vector
+    LOAD_INDEXED = 28   # LOAD_INDEXED arr_slot    pop idx, push arr[idx]
+    STORE_INDEXED = 29  # STORE_INDEXED arr_slot   pop val, pop idx, arr[idx] = val
+    VLOAD = 30          # VLOAD arr_slot, width    pop idx, push tuple(arr[idx:idx+w])
+    VSTORE = 31         # VSTORE arr_slot, width   pop vec, pop idx, arr[idx:idx+w] = vec
+    VADD = 32           # VADD                     pop b_vec, pop a_vec, push a + b
+    VSUB = 33           # VSUB                     pop b_vec, pop a_vec, push a - b
+    VMUL = 34           # VMUL                     pop b_vec, pop a_vec, push a * b
+    VDIV = 35           # VDIV                     pop b_vec, pop a_vec, push a / b
+    NEW_ARRAY = 36      # NEW_ARRAY                pop size, push [0] * size
 
 
 class Instr(NamedTuple):
@@ -39,8 +71,12 @@ class Instr(NamedTuple):
 OPERANDS = {
     Op.PUSH: 1, Op.LOAD: 1, Op.STORE: 1, Op.JMP: 1, Op.JZ: 1,
     Op.JNZ: 1, Op.ENTER: 1, Op.CALL: 2,
+    Op.RLOAD: 2, Op.RSTORE: 2, Op.RLOAD_IMM: 2,
+    Op.LOAD_INDEXED: 1, Op.STORE_INDEXED: 1,
+    Op.VLOAD: 2, Op.VSTORE: 2,
+    Op.VADD: 0, Op.VSUB: 0, Op.VMUL: 0, Op.VDIV: 0,
+    Op.NEW_ARRAY: 0,
 }
-
 JUMPS = {Op.JMP, Op.JZ, Op.JNZ}
 
 MAGIC = b"CVM1"
@@ -48,6 +84,7 @@ _INSTR = struct.Struct("<Bii")
 
 
 def encode(code):
+    """Instruction list -> bytes."""
     out = bytearray(MAGIC)
     out += struct.pack("<I", len(code))
     for ins in code:
@@ -56,6 +93,7 @@ def encode(code):
 
 
 def decode(data):
+    """bytes -> instruction list. Raises ValueError on a malformed file."""
     if data[:4] != MAGIC:
         raise ValueError("not a CVM bytecode file (bad magic number)")
     (count,) = struct.unpack_from("<I", data, 4)
@@ -73,6 +111,7 @@ def decode(data):
 
 
 def format_instr(ins):
+    """Format an individual bytecode instruction into readable assembly text."""
     n = OPERANDS.get(ins.op, 0)
     if n == 1:
         return f"{ins.op.name:<6} {ins.a}"
@@ -82,6 +121,7 @@ def format_instr(ins):
 
 
 def disassemble(code, funcs=None, labels=None):
+    """Readable listing. `funcs`: addr->name, `labels`: addr->[names] (both optional)."""
     funcs, labels = funcs or {}, labels or {}
     lines = []
     for addr, ins in enumerate(code):

@@ -1,0 +1,16 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment / local editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Runtime benchmark outputs
+reports/*.json
+reports/*.md
+!reports/.gitkeep

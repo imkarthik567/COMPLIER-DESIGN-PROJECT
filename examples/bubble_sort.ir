@@ -1,0 +1,44 @@
+# Bubble Sort benchmark -> sort [50, 20, 40, 10, 30] to [10, 20, 30, 40, 50]
+func main():
+    n = 5
+    a = new_array(n)
+    a[0] = 50
+    a[1] = 20
+    a[2] = 40
+    a[3] = 10
+    a[4] = 30
+    i = 0
+outer_loop:
+    limit_i = n - 1
+    ci = i < limit_i
+    ifz ci goto print_sorted
+    j = 0
+inner_loop:
+    limit_j = limit_i - i
+    cj = j < limit_j
+    ifz cj goto next_i
+    j1 = j + 1
+    x = a[j]
+    y = a[j1]
+    need_swap = x > y
+    ifz need_swap goto no_swap
+    a[j] = y
+    a[j1] = x
+no_swap:
+    j = j + 1
+    goto inner_loop
+next_i:
+    i = i + 1
+    goto outer_loop
+print_sorted:
+    r0 = a[0]
+    print r0
+    r1 = a[1]
+    print r1
+    r2 = a[2]
+    print r2
+    r3 = a[3]
+    print r3
+    r4 = a[4]
+    print r4
+    return
