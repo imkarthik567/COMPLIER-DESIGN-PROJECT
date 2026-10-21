@@ -196,6 +196,7 @@ class BenchmarkMetrics:
         inner_w = W - 2
 
         def box_line(content: str = "") -> str:
+            """Format a line padded inside the report box."""
             # Handle unicode character alignment
             # Truncate if exceeds width, else pad
             if len(content) > inner_w:
@@ -486,17 +487,10 @@ class BenchmarkRunner:
         code_base = prog_base.code
 
         # Run Verifier on baseline bytecode
-        has_vec_base = any(
-            ins.op in (
-                Op.LOAD_INDEXED, Op.STORE_INDEXED, Op.NEW_ARRAY,
-                Op.VLOAD, Op.VSTORE, Op.VADD, Op.VSUB, Op.VMUL, Op.VDIV,
-            )
-            for ins in code_base
-        )
-        if not has_vec_base:
-            v_res_base = Verifier().verify(code_base)
-            if not v_res_base.passed:
-                raise verifier.VerificationError("Baseline bytecode verification failed")
+        v_res_base = Verifier().verify(prog_base)
+        if not v_res_base.passed:
+            err_msg = "; ".join(e.message for e in v_res_base.errors)
+            raise verifier.VerificationError(f"Baseline bytecode verification failed: {err_msg}")
 
         # Execute baseline VM with profiling
         vm_base = ProfilingVM(code_base)
@@ -521,18 +515,11 @@ class BenchmarkRunner:
         prog_opt = codegen.generate(fns_opt, reg_map=reg_map)
         code_opt = prog_opt.code
 
-        # Run Verifier on optimized bytecode if pure scalar stack
-        has_vec_opt = any(
-            ins.op in (
-                Op.LOAD_INDEXED, Op.STORE_INDEXED, Op.NEW_ARRAY,
-                Op.VLOAD, Op.VSTORE, Op.VADD, Op.VSUB, Op.VMUL, Op.VDIV,
-            )
-            for ins in code_opt
-        )
-        if reg_map is None and not has_vec_opt:
-            v_res_opt = Verifier().verify(code_opt)
-            if not v_res_opt.passed:
-                raise verifier.VerificationError("Optimized bytecode verification failed")
+        # Run Verifier on optimized bytecode
+        v_res_opt = Verifier().verify(prog_opt)
+        if not v_res_opt.passed:
+            err_msg = "; ".join(e.message for e in v_res_opt.errors)
+            raise verifier.VerificationError(f"Optimized bytecode verification failed: {err_msg}")
 
         # Execute optimized VM with profiling
         vm_opt = ProfilingVM(code_opt)

@@ -48,6 +48,18 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(VMError):
             VM([Instr(Op.ADD), Instr(Op.HALT)]).run()
 
+    def test_codegen_native_array_generation(self):
+        src = """func main():
+            a = new_array(3)
+            a[0] = 7
+            x = a[0]
+            print x
+            return
+        """
+        prog = generate(parse(src))
+        self.assertGreater(len(prog.code), 0)
+        self.assertEqual(run(src), [7])
+
     def test_call_cannot_pop_callers_operands(self):
         code = [Instr(Op.PUSH, 1), Instr(Op.CALL, 3, 0), Instr(Op.HALT),
                 Instr(Op.ENTER, 0), Instr(Op.ADD), Instr(Op.RET)]
@@ -946,6 +958,40 @@ class VerifierTests(unittest.TestCase):
         self.assertFalse(res.passed)
         self.assertTrue(any(e.code == "STACK_OVERFLOW" for e in res.errors))
 
+    def test_verifier_accepts_vector_and_array_bytecode(self):
+        code = [
+            Instr(Op.CALL, 2, 0),
+            Instr(Op.HALT),
+            Instr(Op.ENTER, 5),
+            Instr(Op.PUSH, 4),
+            Instr(Op.NEW_ARRAY),
+            Instr(Op.STORE, 0),
+            Instr(Op.PUSH, 0),
+            Instr(Op.PUSH, 42),
+            Instr(Op.STORE_INDEXED, 0),
+            Instr(Op.PUSH, 0),
+            Instr(Op.LOAD_INDEXED, 0),
+            Instr(Op.STORE, 1),
+            Instr(Op.PUSH, 0),
+            Instr(Op.RET),
+        ]
+        res = self.v.verify(code)
+        self.assertTrue(res.passed, [e.message for e in res.errors])
+
+    def test_verifier_accepts_register_bytecode(self):
+        code = [
+            Instr(Op.CALL, 2, 0),
+            Instr(Op.HALT),
+            Instr(Op.ENTER, 8),
+            Instr(Op.RLOAD_IMM, 0, 100),
+            Instr(Op.RLOAD, 1, 0),
+            Instr(Op.RSTORE, 1, 0),
+            Instr(Op.PUSH, 0),
+            Instr(Op.RET),
+        ]
+        res = self.v.verify(code)
+        self.assertTrue(res.passed, [e.message for e in res.errors])
+
 
 from regalloc import (
     InterferenceGraph,
@@ -1143,7 +1189,10 @@ class RegisterAllocatorTests(unittest.TestCase):
         self.assertTrue(Op.RLOAD_IMM in opcodes or Op.RLOAD in opcodes)
 
 
-from ir import Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return
+from ir import (
+    Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return,
+    LoadIndexed, StoreIndexed, NewArray
+)
 from scheduler import (
     BlockScheduleReport,
     DataDependencyGraph,
@@ -1416,6 +1465,22 @@ class InstructionSchedulerTests(unittest.TestCase):
         self.assertIn("Blocks Ranked by Stall Cycles Saved:", report)
         self.assertGreater(stats.total_stalls_saved, 0)
         self.assertEqual(stats.report(), report)
+
+    def test_scheduler_respects_register_anti_dependencies(self):
+        reg_map = {"idx": 2, "v": 1, "p": 2, "sum": 0, "a": 3}
+        instrs = [
+            Assign("idx", 3),
+            LoadIndexed("v", "a", "idx"),
+            BinOp("p", "*", "v", 2),
+            BinOp("sum", "+", "sum", "p"),
+            Assign("idx", 5),
+            LoadIndexed("v", "a", "idx"),
+        ]
+        ddg = build_ddg(instrs, reg_map=reg_map)
+        sched = list_schedule(instrs, ddg=ddg)
+        idx_sum = next(i for i, ins in enumerate(sched) if isinstance(ins, BinOp) and ins.dst == "sum")
+        idx_redef = next(i for i, ins in enumerate(sched) if isinstance(ins, Assign) and ins.dst == "idx" and ins.src == 5)
+        self.assertLess(idx_sum, idx_redef)
 
 
 # =====================================================================

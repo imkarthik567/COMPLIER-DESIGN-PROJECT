@@ -11,15 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ir import Assign, BinOp, Call
-
-
-def _get_def_var(ins) -> Optional[str]:
-    """Extract variable name defined/assigned by an instruction, if any."""
-    if isinstance(ins, (Assign, BinOp)):
-        return ins.dst
-    if isinstance(ins, Call):
-        return ins.dst
-    return None
+from dataflow import _get_def_var
 
 
 
@@ -45,10 +37,12 @@ class LoopNestNode:
 
     @property
     def is_root(self) -> bool:
+        """Return True if this node is the synthetic root representing the entire function."""
         return self.loop is None
 
     @property
     def is_innermost(self) -> bool:
+        """Return True if this node is a leaf in the nesting tree (innermost loop)."""
         return len(self.children) == 0 and self.loop is not None
 
 
@@ -123,6 +117,7 @@ def compute_dominators(
     postorder: List[str] = []
 
     def dfs(u: str):
+        """Depth-first search traversal to compute postorder."""
         visited.add(u)
         if u in cfg:
             for s in cfg[u].succs:
@@ -139,6 +134,7 @@ def compute_dominators(
     doms[entry] = entry
 
     def intersect(b1: str, b2: str) -> str:
+        """Find common dominator ancestor in the dominator tree."""
         finger1 = b1
         finger2 = b2
         while finger1 != finger2:

@@ -33,12 +33,14 @@ class _Node:
 
 @dataclass
 class Assign(_Node):
+    """Assignment IR statement: dst = src."""
     dst: str
     src: Operand
 
 
 @dataclass
 class BinOp(_Node):
+    """Binary operation IR statement: dst = a op b."""
     dst: str
     op: str
     a: Operand
@@ -47,38 +49,45 @@ class BinOp(_Node):
 
 @dataclass
 class Label(_Node):
+    """Control flow label target."""
     name: str
 
 
 @dataclass
 class Goto(_Node):
+    """Unconditional jump to label."""
     target: str
 
 
 @dataclass
 class IfZ(_Node):
+    """Conditional branch to target if cond == 0."""
     cond: Operand
     target: str
 
 
 @dataclass
 class IfNz(_Node):
+    """Conditional branch to target if cond != 0."""
     cond: Operand
     target: str
 
 
 @dataclass
 class Print(_Node):
+    """Print expression value to stdout."""
     arg: Operand
 
 
 @dataclass
 class Return(_Node):
+    """Function return statement with optional return value."""
     arg: Optional[Operand] = None
 
 
 @dataclass
 class Call(_Node):
+    """Function call statement with optional destination variable."""
     dst: Optional[str]
     func: str
     args: list = field(default_factory=list)
@@ -86,6 +95,7 @@ class Call(_Node):
 
 @dataclass
 class LoadIndexed(_Node):
+    """Array indexed load: dst = array[index]."""
     dst: str
     array: str
     index: Operand
@@ -93,6 +103,7 @@ class LoadIndexed(_Node):
 
 @dataclass
 class StoreIndexed(_Node):
+    """Array indexed store: array[index] = src."""
     array: str
     index: Operand
     src: Operand
@@ -100,12 +111,14 @@ class StoreIndexed(_Node):
 
 @dataclass
 class NewArray(_Node):
+    """Allocate new zero-initialized array: dst = new_array(size)."""
     dst: str
     size: Operand
 
 
 @dataclass
 class VLoad(_Node):
+    """SIMD vector load: dst = vload array, base_index, width."""
     dst: str
     array: str
     base_index: Operand
@@ -114,6 +127,7 @@ class VLoad(_Node):
 
 @dataclass
 class VStore(_Node):
+    """SIMD vector store: vstore array, base_index, src, width."""
     array: str
     base_index: Operand
     src: Operand
@@ -122,6 +136,7 @@ class VStore(_Node):
 
 @dataclass
 class VAdd(_Node):
+    """SIMD vector addition: dst = vadd a, b."""
     dst: str
     a: Operand
     b: Operand
@@ -129,6 +144,7 @@ class VAdd(_Node):
 
 @dataclass
 class VSub(_Node):
+    """SIMD vector subtraction: dst = vsub a, b."""
     dst: str
     a: Operand
     b: Operand
@@ -136,6 +152,7 @@ class VSub(_Node):
 
 @dataclass
 class VMul(_Node):
+    """SIMD vector multiplication: dst = vmul a, b."""
     dst: str
     a: Operand
     b: Operand
@@ -143,6 +160,7 @@ class VMul(_Node):
 
 @dataclass
 class VDiv(_Node):
+    """SIMD vector division: dst = vdiv a, b."""
     dst: str
     a: Operand
     b: Operand
@@ -150,6 +168,7 @@ class VDiv(_Node):
 
 @dataclass
 class Function:
+    """Represents a function definition in the IR."""
     name: str
     params: List[str]
     body: list
@@ -331,6 +350,7 @@ def format_ir(functions):
 # ------------------------------------------------- basic blocks and CFG
 @dataclass
 class Block:
+    """Represents a basic block in function CFG."""
     id: int
     instrs: list
     succs: list = field(default_factory=list)
@@ -363,6 +383,7 @@ def basic_blocks(fn):
                 break
 
     def target(name, line):
+        """Lookup block ID for label name or raise IRError."""
         if name not in label_block:
             raise IRError(f"line {line}: undefined label '{name}' in function '{fn.name}'")
         return label_block[name]

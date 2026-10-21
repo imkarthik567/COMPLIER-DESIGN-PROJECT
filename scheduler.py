@@ -146,6 +146,7 @@ is_barrier = is_barrier_instruction
 
 @dataclass
 class DDGEdge:
+    """Dependency edge connecting instructions in a Data Dependency Graph."""
     source: int
     target: int
     dep_type: DependencyType
@@ -154,6 +155,7 @@ class DDGEdge:
 
 @dataclass
 class DDGNode:
+    """Node wrapping an instruction and its latency in a Data Dependency Graph."""
     id: int
     instr: Any
     latency: int
@@ -269,6 +271,7 @@ def build_ddg(
     last_loads: List[int] = []
 
     def to_resource(v: str) -> str:
+        """Map variable name to register resource identifier if allocated."""
         if reg_map and v in reg_map:
             return f"@r{reg_map[v]}"
         return v
@@ -500,6 +503,7 @@ def estimate_pipeline_cycles(instrs: List[Any]) -> Tuple[int, int]:
 
 @dataclass
 class Superblock:
+    """Represents a linear sequence of basic blocks with a single entry and multiple exits."""
     id: int
     blocks: List[BasicBlock]
     entry_label: str
@@ -657,6 +661,7 @@ def schedule_superblock(
 
 @dataclass
 class BlockScheduleReport:
+    """Detailed performance and latency report for a scheduled basic block."""
     block_label: str
     original_instrs: List[Any]
     scheduled_instrs: List[Any]
@@ -670,6 +675,7 @@ class BlockScheduleReport:
 
 @dataclass
 class SchedulingStats:
+    """Aggregated instruction scheduling statistics across an entire function or program."""
     block_reports: Dict[str, BlockScheduleReport] = field(default_factory=dict)
     total_stalls_saved: int = 0
     total_original_stalls: int = 0

@@ -26,6 +26,8 @@ class Type(str, Enum):
     """Abstract operand types tracked during bytecode verification simulation."""
     INT = "int"
     FUNCREF = "funcref"
+    ARRAY = "array"
+    VECTOR = "vector"
     UNKNOWN = "unknown"
 
 
@@ -46,28 +48,33 @@ class FuncRef:
 
 @dataclass
 class VerificationError:
+    """Represents a bytecode verification failure."""
     instruction_index: int
     code: str
     message: str
 
     @property
     def index(self) -> int:
+        """Instruction index where error occurred."""
         return self.instruction_index
 
 
 @dataclass
 class VerificationWarning:
+    """Represents a bytecode verification warning."""
     instruction_index: int
     code: str
     message: str
 
     @property
     def index(self) -> int:
+        """Instruction index where warning occurred."""
         return self.instruction_index
 
 
 @dataclass
 class VerificationResult:
+    """Represents overall outcome of verifying a bytecode program."""
     passed: bool
     errors: List[VerificationError] = field(default_factory=list)
     warnings: List[VerificationWarning] = field(default_factory=list)
@@ -273,22 +280,57 @@ class Verifier:
                     ins_frame_size[i] = frame_sz
                     ins_func_entry[i] = fe
 
-        # Verify slot bounds (0 <= slot < frame_size) for LOAD and STORE
+        # Verify slot bounds (0 <= slot < frame_size) and register bounds
         for i, ins in enumerate(code):
-            if isinstance(ins, Instr) and ins.op in (Op.LOAD, Op.STORE):
-                slot = ins.a
-                f_size = ins_frame_size.get(i, 0)
-                if not isinstance(slot, int) or slot < 0 or slot >= f_size:
-                    errors.append(
-                        VerificationError(
-                            instruction_index=i,
-                            code="BAD_SLOT",
-                            message=(
-                                f"variable slot index {slot} out of bounds for frame size {f_size} "
-                                f"at instruction {i} ({ins.op.name})"
-                            ),
+            if isinstance(ins, Instr):
+                if ins.op in (Op.LOAD, Op.STORE, Op.LOAD_INDEXED, Op.STORE_INDEXED, Op.VLOAD, Op.VSTORE):
+                    slot = ins.a
+                    f_size = ins_frame_size.get(i, 0)
+                    if not isinstance(slot, int) or slot < 0 or slot >= f_size:
+                        errors.append(
+                            VerificationError(
+                                instruction_index=i,
+                                code="BAD_SLOT",
+                                message=(
+                                    f"variable slot index {slot} out of bounds for frame size {f_size} "
+                                    f"at instruction {i} ({ins.op.name})"
+                                ),
+                            )
                         )
-                    )
+                elif ins.op == Op.RSTORE:
+                    slot = ins.b
+                    f_size = ins_frame_size.get(i, 0)
+                    if not isinstance(slot, int) or slot < 0 or slot >= f_size:
+                        errors.append(
+                            VerificationError(
+                                instruction_index=i,
+                                code="BAD_SLOT",
+                                message=(
+                                    f"memory slot index {slot} out of bounds for frame size {f_size} "
+                                    f"at instruction {i} (RSTORE)"
+                                ),
+                            )
+                        )
+                elif ins.op in (Op.RLOAD, Op.RLOAD_IMM):
+                    rd = ins.a
+                    if not isinstance(rd, int) or not (0 <= rd < 8):
+                        errors.append(
+                            VerificationError(
+                                instruction_index=i,
+                                code="BAD_REGISTER",
+                                message=f"register index {rd} out of range [0, 8) at instruction {i} ({ins.op.name})",
+                            )
+                        )
+                    if ins.op == Op.RLOAD:
+                        rs = ins.b
+                        if not isinstance(rs, int) or not (0 <= rs < 8):
+                            errors.append(
+                                VerificationError(
+                                    instruction_index=i,
+                                    code="BAD_REGISTER",
+                                    message=f"source register index {rs} out of range [0, 8) at instruction {i} (RLOAD)",
+                                )
+                            )
 
         # -------------------------------------------------------------
         # 3. CONTROL FLOW SAFETY: TARGETS & FUNCTION ENCAPSULATION
@@ -640,6 +682,98 @@ class Verifier:
                 elif op == Op.HALT:
                     routine_exits.add(pc)
                     # HALT terminates current control path
+
+                elif op in (Op.RLOAD, Op.RLOAD_IMM, Op.RSTORE):
+                    # Register operations don't alter the operand stack
+                    successors.append(pc + 1)
+
+                elif op == Op.NEW_ARRAY:
+                    if depth < 1:
+                        errors.append(
+                            VerificationError(
+                                instruction_index=pc,
+                                code="STACK_UNDERFLOW",
+                                message=f"stack underflow at instruction {pc} (NEW_ARRAY requires 1 operand, depth is {depth})",
+                            )
+                        )
+                        continue
+                    next_stack.pop()
+                    next_stack.append(Type.ARRAY)
+                    successors.append(pc + 1)
+
+                elif op == Op.LOAD_INDEXED:
+                    if depth < 1:
+                        errors.append(
+                            VerificationError(
+                                instruction_index=pc,
+                                code="STACK_UNDERFLOW",
+                                message=f"stack underflow at instruction {pc} (LOAD_INDEXED requires 1 operand, depth is {depth})",
+                            )
+                        )
+                        continue
+                    next_stack.pop()
+                    next_stack.append(Type.INT)
+                    successors.append(pc + 1)
+
+                elif op == Op.STORE_INDEXED:
+                    if depth < 2:
+                        errors.append(
+                            VerificationError(
+                                instruction_index=pc,
+                                code="STACK_UNDERFLOW",
+                                message=f"stack underflow at instruction {pc} (STORE_INDEXED requires 2 operands, depth is {depth})",
+                            )
+                        )
+                        continue
+                    next_stack.pop()
+                    next_stack.pop()
+                    next_depth = depth - 2
+                    successors.append(pc + 1)
+
+                elif op == Op.VLOAD:
+                    if depth < 1:
+                        errors.append(
+                            VerificationError(
+                                instruction_index=pc,
+                                code="STACK_UNDERFLOW",
+                                message=f"stack underflow at instruction {pc} (VLOAD requires 1 operand, depth is {depth})",
+                            )
+                        )
+                        continue
+                    next_stack.pop()
+                    next_stack.append(Type.VECTOR)
+                    successors.append(pc + 1)
+
+                elif op == Op.VSTORE:
+                    if depth < 2:
+                        errors.append(
+                            VerificationError(
+                                instruction_index=pc,
+                                code="STACK_UNDERFLOW",
+                                message=f"stack underflow at instruction {pc} (VSTORE requires 2 operands, depth is {depth})",
+                            )
+                        )
+                        continue
+                    next_stack.pop()
+                    next_stack.pop()
+                    next_depth = depth - 2
+                    successors.append(pc + 1)
+
+                elif op in (Op.VADD, Op.VSUB, Op.VMUL, Op.VDIV):
+                    if depth < 2:
+                        errors.append(
+                            VerificationError(
+                                instruction_index=pc,
+                                code="STACK_UNDERFLOW",
+                                message=f"stack underflow at instruction {pc} ({op.name} requires 2 operands, depth is {depth})",
+                            )
+                        )
+                        continue
+                    next_stack.pop()
+                    next_stack.pop()
+                    next_stack.append(Type.VECTOR)
+                    next_depth = depth - 1
+                    successors.append(pc + 1)
 
                 # Enqueue successors
                 for succ in successors:

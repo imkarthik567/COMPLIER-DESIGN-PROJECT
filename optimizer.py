@@ -16,7 +16,10 @@ from dataclasses import dataclass, field
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from ir import Assign, BinOp, Call, Function, Goto, IfNz, IfZ, Label, Print, Return
+from ir import (
+    Assign, BinOp, Call, Function, Goto, IfNz, IfZ, Label, Print, Return,
+    LoadIndexed, StoreIndexed, NewArray, VLoad, VStore, VAdd, VSub, VMul, VDiv
+)
 
 Operand = Union[int, str]
 
@@ -27,6 +30,7 @@ Operand = Union[int, str]
 
 @dataclass
 class BasicBlock:
+    """Represents a basic block in the control-flow graph."""
     label: str
     instrs: list = field(default_factory=list)
     preds: list = field(default_factory=list)
@@ -35,6 +39,7 @@ class BasicBlock:
 
 @dataclass
 class OptimizationStats:
+    """Aggregated metrics across optimization passes."""
     constants_folded: int = 0
     algebraic_simplified: int = 0
     copies_propagated: int = 0
@@ -347,6 +352,7 @@ class ConstantFoldingAndPropagation(OptimizationPass):
 
             for ins in b.instrs:
                 def resolve_const(opnd: Operand) -> Operand:
+                    """Resolve operand to known constant value if reaching definitions permit."""
                     if isinstance(opnd, int):
                         return opnd
                     if opnd in local_consts:
@@ -417,6 +423,25 @@ class ConstantFoldingAndPropagation(OptimizationPass):
                         ins = Call(ins.dst, ins.func, new_args)
                         stats["constants_propagated"] += 1
                         changed_this_ins = True
+                elif isinstance(ins, LoadIndexed):
+                    new_idx = resolve_const(ins.index)
+                    if new_idx != ins.index and isinstance(new_idx, int):
+                        ins = LoadIndexed(ins.dst, ins.array, new_idx)
+                        stats["constants_propagated"] += 1
+                        changed_this_ins = True
+                elif isinstance(ins, StoreIndexed):
+                    new_idx = resolve_const(ins.index)
+                    new_src = resolve_const(ins.src)
+                    if (new_idx != ins.index and isinstance(new_idx, int)) or (new_src != ins.src and isinstance(new_src, int)):
+                        ins = StoreIndexed(ins.array, new_idx, new_src)
+                        stats["constants_propagated"] += 1
+                        changed_this_ins = True
+                elif isinstance(ins, NewArray):
+                    new_size = resolve_const(ins.size)
+                    if new_size != ins.size and isinstance(new_size, int):
+                        ins = NewArray(ins.dst, new_size)
+                        stats["constants_propagated"] += 1
+                        changed_this_ins = True
 
                 if isinstance(ins, BinOp):
                     if isinstance(ins.a, int) and isinstance(ins.b, int):
@@ -476,6 +501,7 @@ class CopyPropagation(OptimizationPass):
 
             for ins in b.instrs:
                 def resolve_copy(opnd: Operand) -> Operand:
+                    """Resolve operand through copy chains to original source variable."""
                     if not isinstance(opnd, str):
                         return opnd
 
@@ -543,6 +569,27 @@ class CopyPropagation(OptimizationPass):
                     new_args = [resolve_copy(a) for a in ins.args]
                     if new_args != ins.args:
                         ins = Call(ins.dst, ins.func, new_args)
+                        stats["copies_propagated"] += 1
+                        changed_this_ins = True
+                elif isinstance(ins, LoadIndexed):
+                    new_idx = resolve_copy(ins.index)
+                    new_arr = resolve_copy(ins.array)
+                    if (new_idx != ins.index) or (new_arr != ins.array and isinstance(new_arr, str)):
+                        ins = LoadIndexed(ins.dst, new_arr if isinstance(new_arr, str) else ins.array, new_idx)
+                        stats["copies_propagated"] += 1
+                        changed_this_ins = True
+                elif isinstance(ins, StoreIndexed):
+                    new_idx = resolve_copy(ins.index)
+                    new_src = resolve_copy(ins.src)
+                    new_arr = resolve_copy(ins.array)
+                    if (new_idx != ins.index) or (new_src != ins.src) or (new_arr != ins.array):
+                        ins = StoreIndexed(new_arr if isinstance(new_arr, str) else ins.array, new_idx, new_src)
+                        stats["copies_propagated"] += 1
+                        changed_this_ins = True
+                elif isinstance(ins, NewArray):
+                    new_size = resolve_copy(ins.size)
+                    if new_size != ins.size:
+                        ins = NewArray(ins.dst, new_size)
                         stats["copies_propagated"] += 1
                         changed_this_ins = True
 

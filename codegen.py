@@ -9,7 +9,10 @@ Strategy
 """
 from dataclasses import dataclass
 
-from ir import (Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return)
+from ir import (
+    Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return,
+    LoadIndexed, StoreIndexed, NewArray, VLoad, VStore, VAdd, VSub, VMul, VDiv
+)
 from isa import Instr, Op
 
 
@@ -26,6 +29,7 @@ BINOP_CODE = {
 
 @dataclass
 class Program:
+    """Represents a compiled bytecode program with instruction list and symbol tables."""
     code: list
     funcs: dict    # address -> function name
     labels: dict   # address -> [label names]
@@ -44,6 +48,18 @@ def _vars(ins):
         items = [ins.arg]
     elif isinstance(ins, Call):
         items = [ins.dst] + list(ins.args)
+    elif isinstance(ins, LoadIndexed):
+        items = [ins.dst, ins.array, ins.index]
+    elif isinstance(ins, StoreIndexed):
+        items = [ins.array, ins.index, ins.src]
+    elif isinstance(ins, NewArray):
+        items = [ins.dst, ins.size]
+    elif isinstance(ins, VLoad):
+        items = [ins.dst, ins.array, ins.base_index]
+    elif isinstance(ins, VStore):
+        items = [ins.array, ins.base_index, ins.src]
+    elif isinstance(ins, (VAdd, VSub, VMul, VDiv)):
+        items = [ins.dst, ins.a, ins.b]
     else:
         items = []
     return [x for x in items if isinstance(x, str)]
@@ -93,6 +109,7 @@ def _gen_function(fn, code, sigs, call_fixups, labels, reg_map=None):
             slots[p] = next_slot
 
     def slot(name):
+        """Allocate or lookup stack slot index for variable name."""
         if name not in slots:
             next_slot = 8 if reg_map else 0
             while next_slot in slots.values():
@@ -121,6 +138,7 @@ def _gen_function(fn, code, sigs, call_fixups, labels, reg_map=None):
                     code.append(Instr(Op.STORE, dst_slot))
 
     def push(x):
+        """Emit push instruction for constant or variable load."""
         if isinstance(x, int):
             if not -2**31 <= x < 2**31:
                 raise CodegenError(f"constant {x} does not fit in 32 bits")
@@ -129,6 +147,7 @@ def _gen_function(fn, code, sigs, call_fixups, labels, reg_map=None):
             code.append(Instr(Op.LOAD, slots[x]))
 
     def jump(op, target, line):
+        """Emit jump instruction and record patch entry."""
         jump_fixups.append((len(code), target, line))
         code.append(Instr(op, 0))
 
@@ -193,6 +212,47 @@ def _gen_function(fn, code, sigs, call_fixups, labels, reg_map=None):
                 code.append(Instr(Op.STORE, slot(ins.dst)))
             else:
                 code.append(Instr(Op.POP))       # discard unused result
+        # Vector and Array Operations
+        elif isinstance(ins, LoadIndexed):
+            push(ins.index)
+            code.append(Instr(Op.LOAD_INDEXED, slot(ins.array)))
+            code.append(Instr(Op.STORE, slot(ins.dst)))
+        elif isinstance(ins, StoreIndexed):
+            push(ins.index)
+            push(ins.src)
+            code.append(Instr(Op.STORE_INDEXED, slot(ins.array)))
+        elif isinstance(ins, NewArray):
+            push(ins.size)
+            code.append(Instr(Op.NEW_ARRAY))
+            code.append(Instr(Op.STORE, slot(ins.dst)))
+        elif isinstance(ins, VLoad):
+            push(ins.base_index)
+            code.append(Instr(Op.VLOAD, slot(ins.array), ins.width))
+            code.append(Instr(Op.STORE, slot(ins.dst)))
+        elif isinstance(ins, VStore):
+            push(ins.base_index)
+            push(ins.src)
+            code.append(Instr(Op.VSTORE, slot(ins.array), ins.width))
+        elif isinstance(ins, VAdd):
+            push(ins.a)
+            push(ins.b)
+            code.append(Instr(Op.VADD))
+            code.append(Instr(Op.STORE, slot(ins.dst)))
+        elif isinstance(ins, VSub):
+            push(ins.a)
+            push(ins.b)
+            code.append(Instr(Op.VSUB))
+            code.append(Instr(Op.STORE, slot(ins.dst)))
+        elif isinstance(ins, VMul):
+            push(ins.a)
+            push(ins.b)
+            code.append(Instr(Op.VMUL))
+            code.append(Instr(Op.STORE, slot(ins.dst)))
+        elif isinstance(ins, VDiv):
+            push(ins.a)
+            push(ins.b)
+            code.append(Instr(Op.VDIV))
+            code.append(Instr(Op.STORE, slot(ins.dst)))
         else:
             raise CodegenError(f"unsupported IR node {ins!r}")
 

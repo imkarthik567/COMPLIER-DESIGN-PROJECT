@@ -22,6 +22,7 @@ class VMError(Exception):
 
 @dataclass
 class Frame:
+    """Activation frame storing return IP, local variables, evaluation base, and registers."""
     ret_ip: int
     locals: list
     base: int

@@ -302,26 +302,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Bytecode verification
         verification_status = "PASSED"
         if not args.no_verify:
-            has_vec = any(
-                ins.op in (
-                    Op.LOAD_INDEXED, Op.STORE_INDEXED, Op.NEW_ARRAY,
-                    Op.VLOAD, Op.VSTORE, Op.VADD, Op.VSUB, Op.VMUL, Op.VDIV,
-                )
-                for ins in code
-            )
-            if reg_map is not None or has_vec:
-                # Verifier is designed for pure-stack scalar bytecode; bypass when regalloc/vector active
-                verification_status = "PASSED (pre-regalloc/vector)"
-            else:
-                vresult = Verifier().verify(code)
-                if args.verify_only:
-                    banner("BYTECODE VERIFICATION REPORT")
-                    print(vresult.format_report())
-                    return 0 if vresult.passed else 1
-                if not vresult.passed:
-                    verification_status = "FAILED"
-                    print_verification_errors(vresult)
-                    return 1
+            vresult = Verifier().verify(program)
+            if args.verify_only:
+                banner("BYTECODE VERIFICATION REPORT")
+                print(vresult.format_report())
+                return 0 if vresult.passed else 1
+            if not vresult.passed:
+                verification_status = "FAILED"
+                print_verification_errors(vresult)
+                return 1
         elif args.verify_only:
             print("error: cannot combine --no-verify and --verify-only", file=sys.stderr)
             return 1

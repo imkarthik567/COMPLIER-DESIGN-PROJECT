@@ -162,6 +162,7 @@ def _extract_array_access(
 
 @dataclass
 class LoopVectorizationResult:
+    """Diagnostic outcome and parameters for an analyzed loop candidate."""
     header: str
     vectorized: bool
     reason: str
@@ -172,6 +173,7 @@ class LoopVectorizationResult:
 
 @dataclass
 class VectorizationStats:
+    """Aggregated vectorization statistics across all loops in a function or program."""
     loops_analyzed: int = 0
     loops_vectorized: int = 0
     details: List[LoopVectorizationResult] = field(default_factory=list)
@@ -741,6 +743,7 @@ def _vector_gen_function(fn, code, sigs, call_fixups, labels, reg_map=None):
             slots[p] = next_slot
 
     def slot(name):
+        """Allocate or lookup stack slot index for variable name."""
         if name not in slots:
             next_slot = 8 if reg_map else 0
             while next_slot in slots.values():
@@ -769,6 +772,7 @@ def _vector_gen_function(fn, code, sigs, call_fixups, labels, reg_map=None):
                     code.append(Instr(Op.STORE, dst_slot))
 
     def push(x):
+        """Emit push instruction for constant or variable load."""
         if isinstance(x, int):
             if not -2**31 <= x < 2**31:
                 raise codegen.CodegenError(f"constant {x} does not fit in 32 bits")
@@ -777,6 +781,7 @@ def _vector_gen_function(fn, code, sigs, call_fixups, labels, reg_map=None):
             code.append(Instr(Op.LOAD, slots[x]))
 
     def jump(op, target, line):
+        """Emit jump instruction and record patch entry."""
         jump_fixups.append((len(code), target, line))
         code.append(Instr(op, 0))
 

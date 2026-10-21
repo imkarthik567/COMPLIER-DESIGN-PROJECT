@@ -13,13 +13,17 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from optimizer import BasicBlock, build_cfg
 from dataflow import DataFlowResults, LivenessAnalysis, _get_def_var, _get_read_vars
-from ir import Assign, BinOp, Call, Function, Goto, IfNz, IfZ, Label, Print, Return
+from ir import (
+    Assign, BinOp, Call, Function, Goto, IfNz, IfZ, Label, Print, Return,
+    LoadIndexed, StoreIndexed, NewArray, VLoad, VStore, VAdd, VSub, VMul, VDiv
+)
 
 N_REGS = 8
 
 
 @dataclass
 class RegAllocStats:
+    """Statistics and metrics from graph-coloring register allocation."""
     total_variables: int = 0
     assigned_to_registers: int = 0
     spills: int = 0
@@ -177,6 +181,7 @@ def coalesce_copies(
     alias: Dict[str, str] = {}
 
     def get_alias(x: str) -> str:
+        """Find canonical representative variable for coalesced alias group."""
         curr = x
         while curr in alias:
             curr = alias[curr]
@@ -343,6 +348,32 @@ def _replace_uses(ins: Any, rep_map: Dict[str, str]) -> Any:
     elif isinstance(ins, Call):
         new_args = [rep_map.get(a, a) if isinstance(a, str) else a for a in ins.args]
         return Call(dst=ins.dst, func=ins.func, args=new_args)
+    elif isinstance(ins, LoadIndexed):
+        new_arr = rep_map.get(ins.array, ins.array) if isinstance(ins.array, str) else ins.array
+        new_idx = rep_map.get(ins.index, ins.index) if isinstance(ins.index, str) else ins.index
+        return LoadIndexed(dst=ins.dst, array=new_arr, index=new_idx)
+    elif isinstance(ins, StoreIndexed):
+        new_arr = rep_map.get(ins.array, ins.array) if isinstance(ins.array, str) else ins.array
+        new_idx = rep_map.get(ins.index, ins.index) if isinstance(ins.index, str) else ins.index
+        new_src = rep_map.get(ins.src, ins.src) if isinstance(ins.src, str) else ins.src
+        return StoreIndexed(array=new_arr, index=new_idx, src=new_src)
+    elif isinstance(ins, NewArray):
+        new_size = rep_map.get(ins.size, ins.size) if isinstance(ins.size, str) else ins.size
+        return NewArray(dst=ins.dst, size=new_size)
+    elif isinstance(ins, VLoad):
+        new_arr = rep_map.get(ins.array, ins.array) if isinstance(ins.array, str) else ins.array
+        new_idx = rep_map.get(ins.base_index, ins.base_index) if isinstance(ins.base_index, str) else ins.base_index
+        return VLoad(dst=ins.dst, array=new_arr, base_index=new_idx, width=ins.width)
+    elif isinstance(ins, VStore):
+        new_arr = rep_map.get(ins.array, ins.array) if isinstance(ins.array, str) else ins.array
+        new_idx = rep_map.get(ins.base_index, ins.base_index) if isinstance(ins.base_index, str) else ins.base_index
+        new_src = rep_map.get(ins.src, ins.src) if isinstance(ins.src, str) else ins.src
+        return VStore(array=new_arr, base_index=new_idx, src=new_src, width=ins.width)
+    elif isinstance(ins, (VAdd, VSub, VMul, VDiv)):
+        cls = type(ins)
+        new_a = rep_map.get(ins.a, ins.a) if isinstance(ins.a, str) else ins.a
+        new_b = rep_map.get(ins.b, ins.b) if isinstance(ins.b, str) else ins.b
+        return cls(dst=ins.dst, a=new_a, b=new_b)
     return ins
 
 
@@ -354,6 +385,15 @@ def _replace_def(ins: Any, new_dst: str) -> Any:
         return BinOp(dst=new_dst, op=ins.op, a=ins.a, b=ins.b)
     elif isinstance(ins, Call):
         return Call(dst=new_dst, func=ins.func, args=ins.args)
+    elif isinstance(ins, LoadIndexed):
+        return LoadIndexed(dst=new_dst, array=ins.array, index=ins.index)
+    elif isinstance(ins, NewArray):
+        return NewArray(dst=new_dst, size=ins.size)
+    elif isinstance(ins, VLoad):
+        return VLoad(dst=new_dst, array=ins.array, base_index=ins.base_index, width=ins.width)
+    elif isinstance(ins, (VAdd, VSub, VMul, VDiv)):
+        cls = type(ins)
+        return cls(dst=new_dst, a=ins.a, b=ins.b)
     return ins
 
 

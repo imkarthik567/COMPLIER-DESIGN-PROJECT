@@ -62,7 +62,12 @@ class Op(IntEnum):
     NEW_ARRAY = 36      # NEW_ARRAY                pop size, push [0] * size
 
 
+# Alias for compatibility with external references
+Opcode = Op
+
+
 class Instr(NamedTuple):
+    """Represents a decoded or encoded 9-byte CVM machine instruction."""
     op: Op
     a: int = 0
     b: int = 0
