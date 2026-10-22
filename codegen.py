@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from ir import (Assign, BinOp, Call, Goto, IfNz, IfZ, Label, Print, Return)
-from isa import Instr, Op
+from ir import (Assign, BinOp, Call, Goto, IfNz, IfZ, Label, ParallelSum, ParallelReduce, Print, Return)
+from isa import Instr, Op, REDUCTION_MODES
 
 
 class CodegenError(Exception):
@@ -10,6 +10,7 @@ class CodegenError(Exception):
 
 BINOP_CODE = {
     "+": Op.ADD, "-": Op.SUB, "*": Op.MUL, "/": Op.DIV, "%": Op.MOD,
+    "//": Op.FLOOR_DIV, "%%": Op.PY_MOD,
     "<": Op.LT, "<=": Op.LE, ">": Op.GT, ">=": Op.GE, "==": Op.EQ, "!=": Op.NE,
 }
 
@@ -34,6 +35,8 @@ def _vars(ins):
         items = [ins.arg]
     elif isinstance(ins, Call):
         items = [ins.dst] + list(ins.args)
+    elif isinstance(ins, (ParallelSum, ParallelReduce)):
+        items = [ins.dst, ins.start, ins.stop]
     else:
         items = []
     return [x for x in items if isinstance(x, str)]
@@ -47,22 +50,31 @@ def generate(functions):
         raise CodegenError("program has no 'main' function")
     if sigs["main"] != 0:
         raise CodegenError("'main' must take no parameters")
+    workers = {ins.func for fn in functions for ins in fn.body if isinstance(ins, (ParallelSum, ParallelReduce))}
+    for fn in functions:
+        if fn.name in workers:
+            if len(fn.params) != 1:
+                raise CodegenError(f"parallel_sum worker '{fn.name}' must take exactly one argument")
+            if any(isinstance(ins, (Print, Call, ParallelSum, ParallelReduce)) for ins in fn.body):
+                raise CodegenError(f"parallel_sum worker '{fn.name}' must be pure: print, calls, and nested parallel_sum are not supported")
 
     code = [Instr(Op.CALL, 0, 0), Instr(Op.HALT)]  
-    entry, funcs, labels, call_fixups = {}, {}, {}, []
+    entry, funcs, labels, call_fixups, parallel_fixups = {}, {}, {}, [], []
 
     for f in functions:
         entry[f.name] = len(code)
         funcs[len(code)] = f.name
-        _gen_function(f, code, sigs, call_fixups, labels)
+        _gen_function(f, code, sigs, call_fixups, parallel_fixups, labels)
 
     for idx, name in call_fixups:
         code[idx] = Instr(Op.CALL, entry[name], code[idx].b)
+    for idx, name in parallel_fixups:
+        code[idx] = Instr(code[idx].op, entry[name], code[idx].b)
     code[0] = Instr(Op.CALL, entry["main"], 0)
     return Program(code, funcs, labels)
 
 
-def _gen_function(fn, code, sigs, call_fixups, labels):
+def _gen_function(fn, code, sigs, call_fixups, parallel_fixups, labels):
     slots = {p: i for i, p in enumerate(fn.params)}
 
     def slot(name):
@@ -135,6 +147,21 @@ def _gen_function(fn, code, sigs, call_fixups, labels):
                 code.append(Instr(Op.STORE, slot(ins.dst)))
             else:
                 code.append(Instr(Op.POP))     
+        elif isinstance(ins, (ParallelSum, ParallelReduce)):
+            if ins.func not in sigs:
+                raise CodegenError(f"line {ins.line}: parallel reduction worker '{ins.func}' is not defined")
+            if sigs[ins.func] != 1:
+                raise CodegenError(f"line {ins.line}: parallel reduction worker '{ins.func}' must take exactly one argument")
+            push(ins.start)
+            push(ins.stop)
+            parallel_fixups.append((len(code), ins.func))
+            if isinstance(ins, ParallelSum):
+                code.append(Instr(Op.PAR_SUM, 0, 0))
+            else:
+                if ins.kind not in REDUCTION_MODES:
+                    raise CodegenError(f"line {ins.line}: unsupported parallel reduction '{ins.kind}'")
+                code.append(Instr(Op.PAR_REDUCE, 0, REDUCTION_MODES[ins.kind]))
+            code.append(Instr(Op.STORE, slot(ins.dst)))
         else:
             raise CodegenError(f"unsupported IR node {ins!r}")
 

@@ -67,6 +67,23 @@ class Call(_Node):
 
 
 @dataclass
+class ParallelSum(_Node):
+    dst: str
+    func: str
+    start: Operand
+    stop: Operand
+
+
+@dataclass
+class ParallelReduce(_Node):
+    dst: str
+    func: str
+    start: Operand
+    stop: Operand
+    kind: str
+
+
+@dataclass
 class Function:
     name: str
     params: List[str]
@@ -86,7 +103,7 @@ IF_RE = re.compile(rf"^(ifz|ifnz)\s+({OPND})\s+goto\s+({IDENT})$")
 PRINT_RE = re.compile(rf"^print\s+({OPND})$")
 RETURN_RE = re.compile(rf"^return(?:\s+({OPND}))?$")
 CALL_RE = re.compile(rf"^(?:({IDENT})\s*=\s*)?call\s+({IDENT})\s*\(([^)]*)\)$")
-BINOP_RE = re.compile(rf"^({IDENT})\s*=\s*({OPND})\s*(<=|>=|==|!=|[-+*/%<>])\s*({OPND})$")
+BINOP_RE = re.compile(rf"^({IDENT})\s*=\s*({OPND})\s*(<=|>=|==|!=|//|%%|[-+*/%<>])\s*({OPND})$")
 ASSIGN_RE = re.compile(rf"^({IDENT})\s*=\s*({OPND})$")
 
 
@@ -185,6 +202,10 @@ def fmt(ins):
     if isinstance(ins, Call):
         call = f"call {ins.func}({', '.join(map(str, ins.args))})"
         return f"{ins.dst} = {call}" if ins.dst else call
+    if isinstance(ins, ParallelSum):
+        return f"{ins.dst} = parallel_sum({ins.func}, {ins.start}, {ins.stop})"
+    if isinstance(ins, ParallelReduce):
+        return f"{ins.dst} = parallel_{ins.kind}({ins.func}, {ins.start}, {ins.stop})"
     raise TypeError(ins)
 
 

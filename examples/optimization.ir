@@ -1,0 +1,13 @@
+# Demonstrates constant folding, algebraic simplification and dead stores.
+func double_value(value):
+    doubled = value * 2
+    return doubled
+
+func main():
+    unused = 17 * 23
+    answer = 6 * 7
+    copy = answer
+    result = copy + 0
+    final = call double_value(result)
+    print final
+    return 0

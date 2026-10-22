@@ -1,14 +1,16 @@
 # Compiler Design Project
 
-The project takes a custom Intermediate Representation (IR) program, converts it into bytecode, and executes the bytecode using a stack-based Virtual Machine (VM).
+This project is a teaching compiler for a documented integer-focused subset of Python. It parses `.py` source into Python's AST, lowers that AST to three-address IR, optionally optimizes the IR, generates bytecode, and runs it on a custom stack VM.
 
 ## Project Flow
 
-IR Program
+Python source (.py) or three-address IR (.ir)
     ↓
-IR Processing
+Python AST frontend (for .py)
     ↓
-Basic Blocks and CFG
+Three-address IR
+    ↓
+Optional IR optimization
     ↓
 Bytecode Generation
     ↓
@@ -20,6 +22,12 @@ Program Output
 
 ### main.py
 The main entry point of the project. It controls the overall compilation and execution process.
+
+### optimizer.py
+Applies CFG-based constant propagation across branches and loop back-edges, plus local constant folding, copy propagation, algebraic simplification, and dead-store removal. Independent functions can be optimized concurrently.
+
+### python_frontend.py
+Lowers supported Python syntax to the project's existing IR. Unsupported syntax gives a line-numbered diagnostic.
 
 ### ir.py
 Handles the Intermediate Representation (IR) and creates basic blocks and the Control Flow Graph (CFG).
@@ -51,14 +59,84 @@ Contains sample IR programs used for testing and demonstrating the compiler.
 - Arithmetic and comparison operations
 - Bytecode disassembly
 - VM execution tracing
+- Optional IR optimization (`--opt`)
+- Function-level parallel optimization (`--parallel-opt`)
+- Before/after and VM instruction statistics (`--stats`)
+- Baseline-versus-optimized equivalence and instruction comparison (`--compare`)
+- Repeated baseline-versus-optimized wall-clock benchmark (`--benchmark RUNS`)
+- Python source frontend with integer arithmetic, comparisons, assignments, `if`, `while`, `range` loops, functions, recursion, calls, and `print`
+- Boolean literals represented as integer truth values, plus fixed-size integer tuple locals with constant indexing (`point[0]`, `point[-1]`)
+- CFG liveness analysis and liveness-based dead-store cleanup across branches and loops
+- Fifteen process-parallel integer reductions: sum, min, max, product, nonzero count, any, all, bitwise AND/OR/XOR, GCD, LCM, integer average, argmin, and argmax
+- Version 1 bytecode files, rejection of unknown versions, and backward reading of the earlier `CVM1` file layout
+- `performance_study.py` for repeated sequential-versus-parallel timing and instruction-count comparisons
+- Branch-join and loop-invariant CFG examples (`examples/branch_join.ir`, `examples/sum.ir`)
+- An intentional unsupported-syntax example (`examples/unsupported_python.py`) that demonstrates the frontend diagnostic
 
 ## Running the Project
 
-Make sure Python 3 is installed.
+Use Python 3.9 or newer.
 
 Run an IR program:
 
     python3 main.py examples/sum.ir
+
+Compile and run Python source:
+
+    python3 main.py examples/python_sum.py --opt --stats
+    python3 main.py examples/python_factorial.py --stats
+
+Compare the same Python source without and with optimization:
+
+    python3 main.py examples/python_optimization.py --compare
+
+For a larger loop workload with the same before/after comparison:
+
+    python3 main.py examples/python_optimization_workload.py --compare
+
+`--compare` compiles and runs both versions, checks that their printed output matches, and reports IR, static bytecode, and executed-instruction changes.
+
+Repeat both versions to measure local timings (example: five runs each):
+
+    python3 main.py examples/python_optimization.py --benchmark 5
+
+The benchmark reports min/median/mean elapsed time, static bytecode size, and executed parent/worker instruction counts. For parallel programs, timing includes process-pool startup and results depend on machine load; use larger workloads and repeated trials before making a speedup claim.
+
+Demonstrate real process-level parallel execution from compiled source:
+
+    python3 main.py examples/python_parallel_sum.py --stats
+
+`--parallel-opt` (also accepted as `--parallel`) is separate: it concurrently optimizes independent functions during compilation. The `parallel_*` reductions are the runtime parallel features.
+
+The CFG command (`--cfg`) displays the blocks and edges. The optimizer uses this CFG to solve a forward constant-propagation dataflow problem, including loop back-edges and values that agree at branch joins. Code generation still consumes the resulting function IR directly.
+
+Show the newly supported bounded Python values and reductions:
+
+    python3 main.py examples/python_types.py --opt --stats
+    python3 main.py examples/python_parallel_reductions.py --stats
+
+Tuple support is deliberately limited to non-empty, fixed-size tuples of integer expressions assigned to local names and accessed with a constant in-range index. Dynamic indexing, tuple creation inside branches/loops, lists, and mutable container operations remain unsupported. Booleans lower to integer `0` and `1`; this is not Python's full object/type system.
+
+## Parallel reduction operations
+
+Each `parallel_*` call executes a pure worker for every input in `range(start, stop)` and combines its integer results. `parallel_count` counts nonzero results; `parallel_any` and `parallel_all` return `0` or `1`. `parallel_bit_and`, `parallel_bit_or`, and `parallel_bit_xor` combine results with integer bitwise operations. `parallel_argmin` and `parallel_argmax` return the input value that produced the extreme result; ties choose the lowest input. `parallel_average` returns the floor of sum divided by count, so its result remains an integer.
+
+Empty-range behavior is explicit: sum/count/any/bitwise OR/bitwise XOR/GCD return `0`; product/all/LCM return `1`; bitwise AND returns `-1`; min/max/average/argmin/argmax raise a runtime error. GCD and LCM use Python integer semantics.
+
+Run the full reduction example:
+
+    python3 main.py examples/python_parallel_reductions.py --stats
+
+It prints one result per operation in the order listed in [examples/python_parallel_reductions.py](examples/python_parallel_reductions.py).
+
+Run a repeated workload study (the default uses five runs at 1,000 and 5,000 inputs):
+
+    python3 performance_study.py
+    python3 performance_study.py --sizes 1000 5000 10000 --runs 7
+
+It checks result equality and reports repeated timing ranges/medians, VM instruction counts, and worker counts. Process startup is included and may dominate; use the measured results as local evidence rather than a general speed claim.
+
+New bytecode uses a `CVM` header with an explicit version byte. The decoder accepts the former `CVM1` layout for compatibility and reports an error for unknown versions.
 
 Display the Control Flow Graph:
 
@@ -71,6 +149,25 @@ Display generated bytecode:
 Display VM execution trace:
 
     python3 main.py examples/sum.ir --trace
+
+Compare optimized and unoptimized code:
+
+    python3 main.py examples/optimization.ir --stats
+    python3 main.py examples/optimization.ir --opt --stats
+
+Optimize independent functions concurrently:
+
+    python3 main.py examples/optimization.ir --parallel --stats
+
+Run the unit suite with `python3 tests.py`. See `IMPROVEMENTS_EXPLANATION.md` for the supported language, design, measured comparisons, limitations, and viva preparation.
+
+## Presentation kit
+
+Run the guided presentation walkthrough from the project directory:
+
+    python3 presentation_demo.py
+
+Use `python3 presentation_demo.py --no-pause` to run every example without waiting between sections, or add `--skip-benchmark` to omit the timing step. The walkthrough covers Python input, IR/CFG/bytecode, optimization, sequential and process-parallel results, repeated timing, and a clear unsupported-syntax diagnostic. See `PRESENTATION_GUIDE.md` for a short speaking script, slide-by-slide notes, questions to prepare for, and a final demo checklist. The editable slide deck is in `presentation/`.
 
 ## Example
 
@@ -93,3 +190,11 @@ Output:
 ## Purpose
 
 The project demonstrates the basic stages involved in a compiler, from processing an intermediate representation to generating and executing bytecode.
+
+## Python subset and parallel-reduction contract
+
+The frontend is not a compiler for arbitrary Python. It supports integer literals and variables, boolean literals as 0/1, fixed-size integer tuple locals with constant indexing, `+`, `-`, `*`, `//`, `%`, comparisons, assignments and `+=`-style updates, `if`/`else`, `while`, `for` over `range`, direct function calls, recursion, integer returns, and single-value `print` statements. Non-entry functions must return an integer on every path. It accepts top-level script statements or function definitions with a `main()` entry point. It rejects reads before assignment instead of inheriting the VM's zero-filled local-slot behavior. It does not support floats, strings (except ignored docstrings), lists, dictionaries, mutable containers, dynamic tuple indexing, classes, imports, exceptions, closures, keyword/default arguments, or Python's dynamic object model. Python `//` and `%` retain Python floor-division and modulo behavior, including for negative operands. The original IR operators `/` and `%` retain the backend's truncating division and remainder behavior.
+
+The fifteen `parallel_*` reductions combine results from a pure one-argument worker over `range(start, stop)` using a process pool. Workers can use local integer computation/control flow; printing, calls, and nested reductions are rejected. Inputs are dispatched in batches, and each input still runs in a fresh isolated VM. A maximum of 100,000 inputs is enforced. Empty-range identities and error behavior are listed above. Process startup overhead means small ranges may be slower than sequential code; the examples demonstrate actual process-level execution and output correctness, not a guaranteed speedup.
+
+The Python frontend uses the internal IR spellings `//` and `%%` for Python floor division and modulo so they remain distinct from the legacy IR operators `/` and `%`.

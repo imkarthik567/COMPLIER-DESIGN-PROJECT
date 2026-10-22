@@ -1,0 +1,11 @@
+# Both paths assign the same value; the CFG optimizer proves value is 7 at join.
+func main():
+    flag = 1
+    ifz flag goto other
+    value = 7
+    goto join
+other:
+    value = 7
+join:
+    print value
+    return
